@@ -1,0 +1,210 @@
+function varargout = GUIMAIN(varargin)
+% GUIMAIN MATLAB code for GUIMAIN.fig
+%      GUIMAIN, by itself, creates a new GUIMAIN or raises the existing
+%      singleton*.
+%
+%      H = GUIMAIN returns the handle to a new GUIMAIN or the handle to
+%      the existing singleton*.
+%
+%      GUIMAIN('CALLBACK',hObject,eventData,handles,...) calls the local
+%      function named CALLBACK in GUIMAIN.M with the given input arguments.
+%
+%      GUIMAIN('Property','Value',...) creates a new GUIMAIN or raises the
+%      existing singleton*.  Starting from the left, property value pairs are
+%      applied to the GUI before GUIMAIN_OpeningFcn gets called.  An
+%      unrecognized property name or invalid value makes property application
+%      stop.  All inputs are passed to GUIMAIN_OpeningFcn via varargin.
+%
+%      *See GUI Options on GUIDE's Tools menu.  Choose "GUI allows only one
+%      instance to run (singleton)".
+%
+% See also: GUIDE, GUIDATA, GUIHANDLES
+
+% Edit the above text to modify the response to help GUIMAIN
+
+% Last Modified by GUIDE v2.5 20-Jul-2016 10:59:46
+
+% Begin initialization code - DO NOT EDIT
+gui_Singleton = 1;
+gui_State = struct('gui_Name',       mfilename, ...
+                   'gui_Singleton',  gui_Singleton, ...
+                   'gui_OpeningFcn', @GUIMAIN_OpeningFcn, ...
+                   'gui_OutputFcn',  @GUIMAIN_OutputFcn, ...
+                   'gui_LayoutFcn',  [] , ...
+                   'gui_Callback',   []);
+if nargin && ischar(varargin{1})
+    gui_State.gui_Callback = str2func(varargin{1});
+end
+
+if nargout
+    [varargout{1:nargout}] = gui_mainfcn(gui_State, varargin{:});
+else
+    gui_mainfcn(gui_State, varargin{:});
+end
+% End initialization code - DO NOT EDIT
+
+
+% --- Executes just before GUIMAIN is made visible.
+function GUIMAIN_OpeningFcn(hObject, eventdata, handles, varargin)
+% This function has no output args, see OutputFcn.
+% hObject    handle to figure
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+% varargin   command line arguments to GUIMAIN (see VARARGIN)
+
+% Choose default command line output for GUIMAIN
+handles.output = hObject;
+axes(handles.videoFrame);
+%%
+vidObj = webcam(2);
+handles.vidObj=vidObj;
+%vidRes = get(vid, 'VideoResolution');
+vidRes = vidObj.Resolution;
+%nBands = vid.NumberOfBands;
+hImage = image(zeros(str2num(vidRes(5:7)),str2num(vidRes(1:3)),3));
+
+%img = snapshot(vidObj);
+%%
+preview(vidObj,hImage);
+guidata(hObject,handles);
+% Update handles structure
+
+% UIWAIT makes GUIMAIN wait for user response (see UIRESUME)
+% uiwait(handles.figure1);
+
+
+% --- Outputs from this function are returned to the command line.
+function varargout = GUIMAIN_OutputFcn(hObject, eventdata, handles) 
+% varargout  cell array for returning output args (see VARARGOUT);
+% hObject    handle to figure
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Get default command line output from handles structure
+varargout{1} = handles.output;
+
+
+% --- Executes on button press in signIn.
+function signIn_Callback(hObject, eventdata, handles)
+% hObject    handle to signIn (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+%%% PREPROCESSING OPTIONS:
+preprocessOpts.matchHistograms = true;
+preprocessOpts.adjustHistograms = false;
+preprocessOpts.targetForHistogramAndResize = ...
+	imread('targetFaceHistogram.pgm');
+preprocessOpts.targetSize = 100;
+
+%%% DIRECTORY MANAGEMENT:
+targetDirectory = fullfile(fileparts(which(mfilename)),'AutoCapturedFaces');
+validateCapturedImages = true;
+personNumber = 1;
+dirExists = exist(targetDirectory,'dir') == 7;
+% if dirExists
+% 	prompt = sprintf('Would you like to:\n\nSTART OVER (Clears Existing Data!!)\nAdd Face(s) to recognition set\nor Use recognition set as is?');
+% 	refresh = questdlg(prompt,'Face Recognition Options','START OVER','Add Face(s)','Use as is','START OVER');
+% 	refreshOption = find(ismember({'START OVER','Add Face(s)','Use as is'},refresh));
+% else
+% 	mkdir(targetDirectory);
+refreshOption = 3;
+validateCapturedImages = false;
+%%% FIGURE
+% fdrFig = figure('windowstyle','normal',...
+% 	'name','RECORD FACE UNTIL BEEP; Press <ESCAPE> to Stop',...
+% 	'units','normalized',...
+% 	'menubar','none',...
+% 	'position',[0.2 0.1 0.6 0.7],...
+% 	'closerequestfcn',[],...
+% 	'currentcharacter','0',...
+% 	'keypressfcn',@checkForEscape);
+vidObj = signIn_Callback.webcam(2);
+fdrFig = snapshot(vidObj);
+
+%%% Quality Control Options
+%DETECTORS: for upright faces; and for QE, Nose and Mouth
+% Note: these seem to be unnecessary, and to cause capture problems.
+QC.oneNose = false;
+QC.oneMouth = false;
+if QC.oneNose
+	QC.noseDetector = vision.CascadeObjectDetector(...
+		'ClassificationModel','Nose','MergeThreshold',10);
+end
+if QC.oneMouth
+	QC.mouthDetector = vision.CascadeObjectDetector(...
+		'ClassificationModel','Mouth','MergeThreshold',10);
+end
+% H,W of bounding box must be at least this size for a proper detection
+QC.minBBSize = 30; 
+
+% Create face detector
+faceDetector = vision.CascadeObjectDetector('MergeThreshold',10);
+
+% Number of images of each person to capture:
+nOfEach = 8;
+
+%Between captured frames (allow time for movement/change):
+if nargin < 2
+	pauseval = 0.5;
+end
+% For cropping of captured faces:
+bboxPad = 25;
+%
+captureNumber = 0;
+isDone = false;
+getAnother = true;
+
+%%% START: Auto-capture/detect/train!!!
+RGBFrame = snapshot(vidObj);
+frameSize = size(RGBFrame);
+imgAx = axes('parent',fdrFig,...
+	'units','normalized',...
+	'position',[0.05 0.45 0.9 0.45]);
+imgHndl = imshow(RGBFrame);shg;
+disp('Esc to quit!')
+if ismember(refreshOption,[1,2]) && getAnother && ~isDone
+	while getAnother && double(get(fdrFig,'currentCharacter')) ~= 27
+		% If successful, displayFrame will contain the detection box.
+		% Otherwise not.
+		[displayFrame, success] = capturePreprocessDetectValidateSave;
+		if success
+			captureNumber = captureNumber + 1;
+		end
+		set(imgHndl,'CData',displayFrame);
+		if captureNumber >= nOfEach
+			beep;pause(0.25);beep;
+			queryForNext;
+		end
+	end %while getAnother
+end
+guidata(hObject,handles);
+%streamingFaceRecognition();
+
+% --- Executes on button press in signOut.
+function signOut_Callback(hObject, eventdata, handles)
+% hObject    handle to signOut (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+
+% --- Executes on button press in update.
+function update_Callback(hObject, eventdata, handles)
+% hObject    handle to update (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+streamingFaceRecognition;
+
+% --- Executes during object creation, after setting all properties.
+function videoFrame_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to videoFrame (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: place code in OpeningFcn to populate videoFrame
+
+
+% --- Executes during object creation, after setting all properties.
+function msgBox_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to msgBox (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
